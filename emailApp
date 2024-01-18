@@ -1,0 +1,95 @@
+import smtplib
+import imaplib
+import email
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+class EmailMessage:
+    def __init__(self, from_address, to_address, subject, body):
+        self.from_address = from_address
+        self.to_address = to_address
+        self.subject = subject
+        self.body = body
+
+class SMTPClient:
+    def __init__(self, server, port, username, password):
+        self.server = server
+        self.port = port
+        self.username = username
+        self.password = password
+
+    def send_email(self, email_message):
+        message = MIMEMultipart()
+        message["From"] = email_message.from_address
+        message["To"] = email_message.to_address
+        message["Subject"] = email_message.subject
+        message.attach(MIMEText(email_message.body, "plain"))
+
+        with smtplib.SMTP(self.server, self.port) as server:
+            server.starttls()
+            server.login(self.username, self.password)
+            server.sendmail(email_message.from_address, email_message.to_address, message.as_string())
+
+class IMAPClient:
+    def __init__(self, server, port, username, password):
+        self.server = server
+        self.port = port
+        self.username = username
+        self.password = password
+
+    def receive_emails(self):
+        with imaplib.IMAP4_SSL(self.server, self.port) as mail_server:
+            mail_server.login(self.username, self.password)
+            mail_server.select("inbox")
+            status, messages = mail_server.search(None, "ALL")
+            message_ids = messages[0].split()
+
+            emails = []
+            for msg_id in message_ids:
+                _, msg_data = mail_server.fetch(msg_id, "(RFC822)")
+                raw_email = msg_data[0][1]
+                email_message = email.message_from_bytes(raw_email)
+                emails.append(EmailMessage(
+                    from_address=email_message["From"],
+                    to_address=self.username,
+                    subject=email_message["Subject"],
+                    body=self.extract_body(email_message),
+                ))
+
+            return emails
+
+    def extract_body(self, email_message):
+        if email_message.is_multipart():
+            for part in email_message.walk():
+                if part.get_content_type() == "text/plain":
+                    return part.get_payload(decode=True).decode("utf-8")
+        else:
+            return email_message.get_payload(decode=True).decode("utf-8")
+
+class EmailManager:
+    def __init__(self, smtp_client, imap_client):
+        self.smtp_client = smtp_client
+        self.imap_client = imap_client
+
+    def send_email(self, email_message):
+        self.smtp_client.send_email(email_message)
+
+    def receive_emails(self):
+        return self.imap_client.receive_emails()
+
+# Example Usage
+if __name__ == "__main__":
+    # Replace with your email and server details
+    smtp_client = SMTPClient("your_smtp_server", 587, "your_email@example.com", "your_email_password")
+    imap_client = IMAPClient("your_imap_server", 993, "your_email@example.com", "your_email_password")
+
+    email_manager = EmailManager(smtp_client, imap_client)
+
+    # Send an email
+    email_message = EmailMessage("your_email@example.com", "recipient@example.com", "Test Email", "Hello, this is a test email!")
+    email_manager.send_email(email_message)
+
+    # Receive and display emails
+    received_emails = email_manager.receive_emails()
+    for email in received_emails:
+        print(f"From: {email.from_address}\nSubject: {email.subject}\nBody: {email.body}\n")
